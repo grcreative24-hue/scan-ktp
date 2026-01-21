@@ -2,177 +2,85 @@
 <html lang="id">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>KTP Scanner Pro</title>
-    <script src="https://unpkg.com/tesseract.js@v2.1.0/dist/tesseract.min.js"></script>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Scanner KTP Simple</title>
+    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@2.1.1/dist/tesseract.min.js"></script>
     <style>
-        * { box-sizing: border-box; margin: 0; padding: 0; }
-        body { font-family: -apple-system, sans-serif; background: #111; color: white; padding: 15px; }
-        #view { position: relative; width: 100%; max-width: 500px; aspect-ratio: 1.58/1; background: #000; border-radius: 12px; overflow: hidden; border: 2px solid #38bdf8; }
-        video { width: 100%; height: 100%; object-fit: cover; }
-        .guide { position: absolute; top: 0; left: 0; right: 0; bottom: 0; border: 2px solid #00ff00; border-radius: 10px; box-shadow: 0 0 0 1000px rgba(0,0,0,0.5); z-index: 5; }
-        .btn { width: 100%; padding: 15px; margin-top: 15px; border-radius: 8px; border: none; font-weight: bold; font-size: 16px; cursor: pointer; }
-        #btn-scan { background: #38bdf8; color: #000; }
-        #loading { text-align: center; margin-top: 10px; color: #38bdf8; display: none; }
-        #results { margin-top: 20px; background: #222; padding: 15px; border-radius: 10px; display: none; }
-        .row { display: flex; justify-content: space-between; border-bottom: 1px solid #333; padding: 8px 0; font-size: 13px; }
-        .label { color: #888; }
+        body { font-family: sans-serif; background: #111; color: white; text-align: center; padding: 20px; }
+        #camera-box { position: relative; width: 100%; max-width: 400px; margin: auto; border: 2px solid #38bdf8; border-radius: 10px; overflow: hidden; }
+        video { width: 100%; display: block; }
+        .guide { position: absolute; top: 10%; left: 5%; right: 5%; bottom: 10%; border: 2px solid #00ff00; pointer-events: none; }
+        button { width: 100%; max-width: 400px; padding: 15px; margin-top: 20px; background: #38bdf8; border: none; border-radius: 8px; font-weight: bold; cursor: pointer; }
+        #result { margin-top: 20px; text-align: left; background: #222; padding: 15px; border-radius: 8px; display: none; }
+        .loading { color: #facc15; margin-top: 10px; display: none; }
     </style>
 </head>
 <body>
 
-    <h2 style="text-align:center; margin-bottom:10px;">ID Scanner</h2>
+    <h3>AI KTP SCANNER</h3>
     
-    <div id="view">
-        <video id="webcam" autoplay playsinline></video>
+    <div id="camera-box">
+        <video id="video" autoplay playsinline></video>
         <div class="guide"></div>
     </div>
 
-    <button id="btn-scan" class="btn">AMBIL & ANALISIS</button>
-    <div id="loading">Memproses AI... <span id="prog">0%</span></div>
+    <button id="btn-snap">AMBIL & ANALISIS FOTO</button>
+    <div id="loading" class="loading">Memproses AI... Tunggu sebentar</div>
 
-    <div id="results">
-        <h4 style="color:#00ff00; margin-bottom:10px;">DATA TERDETEKSI:</h4>
-        <div id="data-list"></div>
-        <button id="btn-copy" class="btn" style="background:#444; color:white; font-size:12px;">SALIN TEKS</button>
+    <div id="result">
+        <b style="color:#38bdf8">HASIL SCAN:</b>
+        <pre id="text-output" style="white-space: pre-wrap; font-size: 12px; margin-top:10px;"></pre>
     </div>
 
-    <canvas id="out" style="display:none;"></canvas>
+    <canvas id="canvas" style="display:none;"></canvas>
 
     <script>
-        const video = document.getElementById('webcam');
-        const btn = document.getElementById('btn-scan');
-        const load = document.getElementById('loading');
-        const prog = document.getElementById('prog');
-        const res = document.getElementById('results');
-        const list = document.getElementById('data-list');
+        const video = document.querySelector('#video');
+        const btn = document.querySelector('#btn-snap');
+        const loading = document.querySelector('#loading');
+        const resultDiv = document.querySelector('#result');
+        const output = document.querySelector('#text-output');
 
-        // Start Camera
+        // 1. Jalankan Kamera
         navigator.mediaDevices.getUserMedia({ 
-            video: { facingMode: "environment", width: { ideal: 1280 } } 
-        }).then(s => video.srcObject = s);
+            video: { facingMode: "environment" } 
+        }).then(stream => {
+            video.srcObject = stream;
+        }).catch(err => {
+            alert("Izin kamera ditolak atau tidak support HTTPS.");
+        });
 
+        // 2. Fungsi Scan
         btn.onclick = async () => {
             btn.disabled = true;
-            load.style.display = 'block';
-            res.style.display = 'none';
+            loading.style.display = 'block';
+            resultDiv.style.display = 'none';
 
-            const canvas = document.getElementById('out');
+            const canvas = document.querySelector('#canvas');
             canvas.width = video.videoWidth;
             canvas.height = video.videoHeight;
-            const ctx = canvas.getContext('2d');
-            ctx.drawImage(video, 0, 0);
+            canvas.getContext('2d').drawImage(video, 0, 0);
+            
+            const imageData = canvas.toDataURL('image/jpeg');
 
-            // Analisis Langsung
             try {
-                const { data: { text } } = await Tesseract.recognize(canvas, 'ind', {
-                    logger: m => { if(m.status === 'recognizing text') prog.innerText = Math.round(m.progress*100)+'%'; }
+                // Menggunakan fungsi recognize langsung (paling simpel)
+                Tesseract.recognize(
+                    imageData,
+                    'ind', // Bahasa Indonesia
+                    { logger: m => console.log(m) }
+                ).then(({ data: { text } }) => {
+                    output.innerText = text;
+                    resultDiv.style.display = 'block';
+                    loading.style.display = 'none';
+                    btn.disabled = false;
                 });
-
-                const raw = text.toUpperCase();
-                const fields = {
-                    "NIK": raw.match(/\d{16}/) ? raw.match(/\d{16}/)[0] : "-",
-                    "NAMA": (raw.match(/NAMA\s*[:|-]?\s*([^\n]+)/) || [])[1] || "-",
-                    "ALAMAT": (raw.match(/ALAMAT\s*[:|-]?\s*([^\n]+)/) || [])[1] || "-",
-                    "PEKERJAAN": (raw.match(/PEKERJAAN\s*[:|-]?\s*([^\n]+)/) || [])[1] || "-"
-                };
-
-                list.innerHTML = Object.entries(fields).map(([k,v]) => `
-                    <div class="row"><span class="label">${k}</span><span>${v}</span></div>
-                `).join('');
-                
-                res.style.display = 'block';
-            } catch (e) {
-                alert("Gagal. Pastikan internet aktif untuk load AI.");
-            } finally {
+            } catch (error) {
+                alert("Terjadi kesalahan saat memproses gambar.");
                 btn.disabled = false;
-                load.style.display = 'none';
+                loading.style.display = 'none';
             }
         };
-
-        document.getElementById('btn-copy').onclick = () => {
-            navigator.clipboard.writeText(list.innerText);
-            alert("Disalin!");
-        };
     </script>
-</body>
-</html>        resultTable.style.display = 'none';
-        percent.innerText = "0%";
-
-        const ctx = canvas.getContext('2d');
-        canvas.width = video.videoWidth;
-        canvas.height = video.videoHeight;
-        
-        // AMBIL GAMBAR
-        ctx.drawImage(video, 0, 0);
-
-        // --- PROSES PENGOLAHAN GAMBAR (Penting agar AI tidak bingung) ---
-        let imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-        let data = imgData.data;
-        for (let i = 0; i < data.length; i += 4) {
-            // Ubah ke Hitam Putih (Grayscale)
-            let brightness = 0.34 * data[i] + 0.5 * data[i + 1] + 0.16 * data[i + 2];
-            // Tingkatkan Kontras (Thresholding sederhana)
-            let v = (brightness > 125) ? 255 : 0; 
-            data[i] = data[i+1] = data[i+2] = v;
-        }
-        ctx.putImageData(imgData, 0, 0);
-        const processedImg = canvas.toDataURL('image/jpeg', 1.0);
-
-        try {
-            // Gunakan Worker dengan konfigurasi lebih lengkap
-            const worker = await Tesseract.createWorker({
-                logger: m => {
-                    if (m.status === 'recognizing text') {
-                        percent.innerText = Math.round(m.progress * 100) + '%';
-                    } else {
-                        percent.innerText = "Memuat AI...";
-                    }
-                }
-            });
-            
-            await worker.loadLanguage('ind');
-            await worker.initialize('ind');
-            
-            const { data: { text } } = await worker.recognize(processedImg);
-            await worker.terminate();
-
-            const raw = text.toUpperCase();
-            console.log("Raw Text:", raw); // Cek di console log jika perlu
-
-            const fields = {
-                "NIK": raw.match(/\d{16}/) ? raw.match(/\d{16}/)[0] : "Tidak Terbaca",
-                "NAMA": cleanText(raw, "NAMA"),
-                "TEMPAT/TGL LAHIR": cleanText(raw, "LAHIR"),
-                "ALAMAT": cleanText(raw, "ALAMAT"),
-                "RT/RW": cleanText(raw, "RT/RW"),
-                "KEL/DESA": cleanText(raw, "KEL"),
-                "KECAMATAN": cleanText(raw, "KECAMATAN"),
-                "AGAMA": cleanText(raw, "AGAMA"),
-                "STATUS": cleanText(raw, "STATUS"),
-                "PEKERJAAN": cleanText(raw, "PEKERJAAN"),
-                "KEWARGANEGARAAN": cleanText(raw, "NEGARA")
-            };
-
-            dataDisplay.innerHTML = Object.entries(fields).map(([k, v]) => `
-                <tr><td class="label">${k}</td><td class="val">${v}</td></tr>
-            `).join('');
-
-            resultTable.style.display = 'block';
-        } catch (e) {
-            alert("Gagal menganalisis: " + e.message);
-        } finally {
-            btnSnap.disabled = false;
-            loading.style.display = 'none';
-        }
-    });
-
-    document.getElementById('btn-copy').addEventListener('click', () => {
-        const textToCopy = Array.from(dataDisplay.querySelectorAll('tr'))
-            .map(tr => tr.innerText.replace('\t', ': ')).join('\n');
-        navigator.clipboard.writeText(textToCopy);
-        alert("Data disalin!");
-    });
-        </scrip>
 </body>
 </html>
