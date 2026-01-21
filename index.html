@@ -83,77 +83,105 @@
     <canvas id="canvas" style="display:none;"></canvas>
 
     <script>
-        const video = document.getElementById('webcam');
-        const btnSnap = document.getElementById('btn-snap');
-        const resultTable = document.getElementById('result-table');
-        const dataDisplay = document.getElementById('data-display');
-        const loading = document.getElementById('loading');
-        const percent = document.getElementById('percent');
+    const video = document.getElementById('webcam');
+    const btnSnap = document.getElementById('btn-snap');
+    const resultTable = document.getElementById('result-table');
+    const dataDisplay = document.getElementById('data-display');
+    const loading = document.getElementById('loading');
+    const percent = document.getElementById('percent');
+    const canvas = document.getElementById('canvas');
 
-        // Nyalakan Kamera
-        navigator.mediaDevices.getUserMedia({ 
-            video: { facingMode: "environment", width: 1280 } 
-        }).then(stream => { video.srcObject = stream; });
+    // Aktifkan Kamera dengan Resolusi Tinggi
+    navigator.mediaDevices.getUserMedia({ 
+        video: { facingMode: "environment", width: { ideal: 1920 }, height: { ideal: 1080 } } 
+    }).then(stream => { video.srcObject = stream; });
 
-        function cleanText(text, label) {
-            const regex = new RegExp(`${label}\\s*[:|-]?\\s*([^\\n]+)`, 'i');
-            const match = text.match(regex);
-            return match ? match[1].trim() : "-";
+    function cleanText(text, label) {
+        const regex = new RegExp(`${label}\\s*[:|-]?\\s*([^\\n]+)`, 'i');
+        const match = text.match(regex);
+        return match ? match[1].trim() : "-";
+    }
+
+    btnSnap.addEventListener('click', async () => {
+        btnSnap.disabled = true;
+        loading.style.display = 'block';
+        resultTable.style.display = 'none';
+        percent.innerText = "0%";
+
+        const ctx = canvas.getContext('2d');
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        
+        // AMBIL GAMBAR
+        ctx.drawImage(video, 0, 0);
+
+        // --- PROSES PENGOLAHAN GAMBAR (Penting agar AI tidak bingung) ---
+        let imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        let data = imgData.data;
+        for (let i = 0; i < data.length; i += 4) {
+            // Ubah ke Hitam Putih (Grayscale)
+            let brightness = 0.34 * data[i] + 0.5 * data[i + 1] + 0.16 * data[i + 2];
+            // Tingkatkan Kontras (Thresholding sederhana)
+            let v = (brightness > 125) ? 255 : 0; 
+            data[i] = data[i+1] = data[i+2] = v;
         }
+        ctx.putImageData(imgData, 0, 0);
+        const processedImg = canvas.toDataURL('image/jpeg', 1.0);
 
-        btnSnap.addEventListener('click', async () => {
-            btnSnap.disabled = true;
-            loading.style.display = 'block';
-            resultTable.style.display = 'none';
+        try {
+            // Gunakan Worker dengan konfigurasi lebih lengkap
+            const worker = await Tesseract.createWorker({
+                logger: m => {
+                    if (m.status === 'recognizing text') {
+                        percent.innerText = Math.round(m.progress * 100) + '%';
+                    } else {
+                        percent.innerText = "Memuat AI...";
+                    }
+                }
+            });
+            
+            await worker.loadLanguage('ind');
+            await worker.initialize('ind');
+            
+            const { data: { text } } = await worker.recognize(processedImg);
+            await worker.terminate();
 
-            const ctx = document.getElementById('canvas').getContext('2d');
-            canvas.width = video.videoWidth;
-            canvas.height = video.videoHeight;
-            ctx.drawImage(video, 0, 0);
-            const imgData = canvas.toDataURL('image/jpeg');
+            const raw = text.toUpperCase();
+            console.log("Raw Text:", raw); // Cek di console log jika perlu
 
-            try {
-                const worker = await Tesseract.createWorker('ind', 1, {
-                    logger: m => { if(m.status === 'recognizing text') percent.innerText = Math.round(m.progress * 100) + '%'; }
-                });
-                
-                const { data: { text } } = await worker.recognize(imgData);
-                await worker.terminate();
+            const fields = {
+                "NIK": raw.match(/\d{16}/) ? raw.match(/\d{16}/)[0] : "Tidak Terbaca",
+                "NAMA": cleanText(raw, "NAMA"),
+                "TEMPAT/TGL LAHIR": cleanText(raw, "LAHIR"),
+                "ALAMAT": cleanText(raw, "ALAMAT"),
+                "RT/RW": cleanText(raw, "RT/RW"),
+                "KEL/DESA": cleanText(raw, "KEL"),
+                "KECAMATAN": cleanText(raw, "KECAMATAN"),
+                "AGAMA": cleanText(raw, "AGAMA"),
+                "STATUS": cleanText(raw, "STATUS"),
+                "PEKERJAAN": cleanText(raw, "PEKERJAAN"),
+                "KEWARGANEGARAAN": cleanText(raw, "NEGARA")
+            };
 
-                const raw = text.toUpperCase();
-                const fields = {
-                    "NIK": raw.match(/\d{16}/) ? raw.match(/\d{16}/)[0] : "-",
-                    "NAMA": cleanText(raw, "NAMA"),
-                    "TEMPAT/TGL LAHIR": cleanText(raw, "LAHIR"),
-                    "ALAMAT": cleanText(raw, "ALAMAT"),
-                    "RT/RW": cleanText(raw, "RT/RW"),
-                    "KEL/DESA": cleanText(raw, "KEL"),
-                    "KECAMATAN": cleanText(raw, "KECAMATAN"),
-                    "AGAMA": cleanText(raw, "AGAMA"),
-                    "STATUS": cleanText(raw, "STATUS"),
-                    "PEKERJAAN": cleanText(raw, "PEKERJAAN"),
-                    "KEWARGANEGARAAN": cleanText(raw, "NEGARA")
-                };
+            dataDisplay.innerHTML = Object.entries(fields).map(([k, v]) => `
+                <tr><td class="label">${k}</td><td class="val">${v}</td></tr>
+            `).join('');
 
-                dataDisplay.innerHTML = Object.entries(fields).map(([k, v]) => `
-                    <tr><td class="label">${k}</td><td class="val">${v}</td></tr>
-                `).join('');
+            resultTable.style.display = 'block';
+        } catch (e) {
+            alert("Gagal menganalisis: " + e.message);
+        } finally {
+            btnSnap.disabled = false;
+            loading.style.display = 'none';
+        }
+    });
 
-                resultTable.style.display = 'block';
-            } catch (e) {
-                alert("Gagal menganalisis. Pastikan gambar jelas.");
-            } finally {
-                btnSnap.disabled = false;
-                loading.style.display = 'none';
-            }
-        });
-
-        document.getElementById('btn-copy').addEventListener('click', () => {
-            const textToCopy = Array.from(dataDisplay.querySelectorAll('tr'))
-                .map(tr => tr.innerText.replace('\t', ': ')).join('\n');
-            navigator.clipboard.writeText(textToCopy);
-            alert("Data berhasil disalin!");
-        });
-    </script>
+    document.getElementById('btn-copy').addEventListener('click', () => {
+        const textToCopy = Array.from(dataDisplay.querySelectorAll('tr'))
+            .map(tr => tr.innerText.replace('\t', ': ')).join('\n');
+        navigator.clipboard.writeText(textToCopy);
+        alert("Data disalin!");
+    });
+        </scrip>
 </body>
 </html>
