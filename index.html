@@ -3,188 +3,157 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>AI ID Scanner Pro</title>
+    <title>AI KTP Scanner Pro</title>
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@4/dist/tesseract.min.js"></script>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
-        body { 
-            font-family: 'Segoe UI', Roboto, sans-serif; 
-            background: #0f172a; 
-            color: #f8fafc; 
-            display: flex; 
-            flex-direction: column; 
-            align-items: center; 
-            justify-content: center;
-            min-height: 100vh;
-            overflow-x: hidden;
-        }
+        body { font-family: sans-serif; background: #0f172a; color: white; display: flex; flex-direction: column; align-items: center; min-height: 100vh; padding: 20px; }
+        
+        .header { text-align: center; margin-bottom: 20px; }
+        .header h2 { color: #38bdf8; }
 
-        .header { text-align: center; padding: 20px; }
-        .header h2 { color: #38bdf8; font-size: 24px; }
-        .header p { color: #94a3b8; font-size: 14px; }
-
-        /* Wadah Kamera */
-        #camera-wrapper {
+        #viewport {
             position: relative;
-            width: 90%;
+            width: 100%;
             max-width: 400px;
-            aspect-ratio: 1.58 / 1; /* Rasio kartu ID */
+            aspect-ratio: 1.58 / 1;
             background: #000;
-            border-radius: 16px;
+            border-radius: 12px;
             overflow: hidden;
             border: 2px solid #334155;
-            box-shadow: 0 20px 50px rgba(0,0,0,0.5);
         }
 
         video { width: 100%; height: 100%; object-fit: cover; }
 
-        /* Bingkai Panduan */
-        .scan-overlay {
+        .guide {
             position: absolute;
             top: 0; left: 0; right: 0; bottom: 0;
             border: 2px solid #38bdf8;
-            border-radius: 14px;
+            border-radius: 10px;
             box-shadow: 0 0 0 1000px rgba(15, 23, 42, 0.7);
-            z-index: 5;
-            pointer-events: none;
+            z-index: 10;
         }
 
-        .scan-line {
-            position: absolute;
-            top: 0; left: 0; width: 100%; height: 2px;
-            background: rgba(56, 189, 248, 0.5);
-            box-shadow: 0 0 15px #38bdf8;
-            animation: scanAnim 2s infinite linear;
-            z-index: 6;
-            display: none;
-        }
-
-        @keyframes scanAnim {
-            0% { top: 0; }
-            100% { top: 100%; }
-        }
-
-        /* Kontrol */
-        .controls { width: 90%; max-width: 400px; margin-top: 25px; }
+        .controls { width: 100%; max-width: 400px; margin: 20px 0; }
         
         button {
-            width: 100%; padding: 18px; border-radius: 12px; border: none;
-            font-size: 16px; font-weight: bold; cursor: pointer;
-            background: #38bdf8; color: #0f172a;
-            box-shadow: 0 4px 14px rgba(56, 189, 248, 0.4);
-            transition: 0.3s;
+            width: 100%; padding: 15px; border-radius: 10px; border: none;
+            background: #38bdf8; color: #0f172a; font-weight: bold; font-size: 16px;
+            cursor: pointer;
         }
-        button:active { transform: scale(0.95); }
-        button:disabled { background: #475569; color: #94a3b8; box-shadow: none; }
+        button:disabled { background: #475569; color: #94a3b8; }
 
-        /* Hasil Scan */
-        #result-box {
-            width: 90%; max-width: 400px; background: #1e293b;
-            margin-top: 20px; border-radius: 12px; padding: 20px;
-            border: 1px solid #334155; display: none;
+        #result-table {
+            width: 100%; max-width: 400px; background: #1e293b; border-radius: 12px;
+            padding: 15px; display: none; margin-top: 10px; border: 1px solid #334155;
         }
-        .result-item { margin-bottom: 12px; }
-        .label { font-size: 11px; color: #38bdf8; text-transform: uppercase; letter-spacing: 1px; }
-        .value { font-size: 18px; font-weight: bold; margin-top: 4px; word-break: break-all; }
+
+        table { width: 100%; border-collapse: collapse; font-size: 13px; }
+        td { padding: 8px 0; border-bottom: 1px solid #334155; }
+        .label { color: #94a3b8; width: 40%; }
+        .val { font-weight: bold; text-align: right; color: #f8fafc; }
         
-        #status { font-size: 14px; margin-top: 15px; color: #94a3b8; }
+        #loading { margin-top: 10px; color: #38bdf8; font-size: 14px; display: none; }
     </style>
 </head>
 <body>
 
     <div class="header">
-        <h2>ID SCANNER PRO</h2>
-        <p>Posisikan KTP pas di dalam kotak</p>
+        <h2>AI KTP SCANNER</h2>
+        <p>Foto KTP Anda untuk analisis data</p>
     </div>
 
-    <div id="camera-wrapper">
+    <div id="viewport">
         <video id="webcam" autoplay playsinline></video>
-        <div class="scan-overlay"></div>
-        <div id="scanner-line" class="scan-line"></div>
+        <div class="guide"></div>
     </div>
 
     <div class="controls">
-        <button id="btn-scan">MULAI SCAN ID</button>
-        <div id="status" style="text-align: center;">Kamera siap...</div>
+        <button id="btn-snap">AMBIL & ANALISIS FOTO</button>
+        <div id="loading">Sedang menganalisis teks... <span id="percent">0%</span></div>
     </div>
 
-    <div id="result-box">
-        <div class="result-item">
-            <div class="label">NIK Terdeteksi</div>
-            <div id="nik-result" class="value">Mencari...</div>
-        </div>
-        <div class="result-item">
-            <div class="label">Teks Mentah</div>
-            <div id="raw-result" class="value" style="font-size: 12px; font-weight: normal; opacity: 0.7;">-</div>
-        </div>
+    <div id="result-table">
+        <h4 style="margin-bottom: 10px; color: #38bdf8;">HASIL ANALISIS:</h4>
+        <table id="data-display">
+            </table>
+        <button id="btn-copy" style="margin-top: 15px; background: #22c55e; color: white; font-size: 14px; padding: 10px;">SALIN SEMUA DATA</button>
     </div>
 
-    <canvas id="hidden-canvas" style="display:none;"></canvas>
+    <canvas id="canvas" style="display:none;"></canvas>
 
     <script>
         const video = document.getElementById('webcam');
-        const btnScan = document.getElementById('btn-scan');
-        const status = document.getElementById('status');
-        const resultBox = document.getElementById('result-box');
-        const scanLine = document.getElementById('scanner-line');
-        const canvas = document.getElementById('hidden-canvas');
+        const btnSnap = document.getElementById('btn-snap');
+        const resultTable = document.getElementById('result-table');
+        const dataDisplay = document.getElementById('data-display');
+        const loading = document.getElementById('loading');
+        const percent = document.getElementById('percent');
 
-        // Memulai Kamera
-        async function initCamera() {
-            try {
-                const stream = await navigator.mediaDevices.getUserMedia({
-                    video: { facingMode: "environment", width: { ideal: 1280 } },
-                    audio: false
-                });
-                video.srcObject = stream;
-            } catch (err) {
-                status.innerText = "Gagal akses kamera. Gunakan HTTPS!";
-                status.style.color = "#ef4444";
-            }
+        // Nyalakan Kamera
+        navigator.mediaDevices.getUserMedia({ 
+            video: { facingMode: "environment", width: 1280 } 
+        }).then(stream => { video.srcObject = stream; });
+
+        function cleanText(text, label) {
+            const regex = new RegExp(`${label}\\s*[:|-]?\\s*([^\\n]+)`, 'i');
+            const match = text.match(regex);
+            return match ? match[1].trim() : "-";
         }
 
-        btnScan.addEventListener('click', async () => {
-            // Persiapan UI
-            btnScan.disabled = true;
-            status.innerText = "Mengambil gambar...";
-            scanLine.style.display = "block";
-            resultBox.style.display = "none";
+        btnSnap.addEventListener('click', async () => {
+            btnSnap.disabled = true;
+            loading.style.display = 'block';
+            resultTable.style.display = 'none';
 
-            // Ambil Frame dari Video
-            const ctx = canvas.getContext('2d');
+            const ctx = document.getElementById('canvas').getContext('2d');
             canvas.width = video.videoWidth;
             canvas.height = video.videoHeight;
             ctx.drawImage(video, 0, 0);
-            
-            const image = canvas.toDataURL('image/jpeg', 0.9);
-
-            status.innerText = "AI sedang membaca teks...";
+            const imgData = canvas.toDataURL('image/jpeg');
 
             try {
-                // Proses OCR
-                const worker = await Tesseract.createWorker('ind');
-                const { data: { text } } = await worker.recognize(image);
+                const worker = await Tesseract.createWorker('ind', 1, {
+                    logger: m => { if(m.status === 'recognizing text') percent.innerText = Math.round(m.progress * 100) + '%'; }
+                });
+                
+                const { data: { text } } = await worker.recognize(imgData);
                 await worker.terminate();
 
-                // Cari NIK (16 angka) menggunakan Regex
-                const nikMatch = text.match(/\d{16}/);
-                
-                // Tampilkan Hasil
-                resultBox.style.display = "block";
-                document.getElementById('nik-result').innerText = nikMatch ? nikMatch[0] : "NIK tidak terbaca jelas";
-                document.getElementById('raw-result').innerText = text.substring(0, 200) + "...";
-                
-                status.innerText = "Selesai!";
+                const raw = text.toUpperCase();
+                const fields = {
+                    "NIK": raw.match(/\d{16}/) ? raw.match(/\d{16}/)[0] : "-",
+                    "NAMA": cleanText(raw, "NAMA"),
+                    "TEMPAT/TGL LAHIR": cleanText(raw, "LAHIR"),
+                    "ALAMAT": cleanText(raw, "ALAMAT"),
+                    "RT/RW": cleanText(raw, "RT/RW"),
+                    "KEL/DESA": cleanText(raw, "KEL"),
+                    "KECAMATAN": cleanText(raw, "KECAMATAN"),
+                    "AGAMA": cleanText(raw, "AGAMA"),
+                    "STATUS": cleanText(raw, "STATUS"),
+                    "PEKERJAAN": cleanText(raw, "PEKERJAAN"),
+                    "KEWARGANEGARAAN": cleanText(raw, "NEGARA")
+                };
+
+                dataDisplay.innerHTML = Object.entries(fields).map(([k, v]) => `
+                    <tr><td class="label">${k}</td><td class="val">${v}</td></tr>
+                `).join('');
+
+                resultTable.style.display = 'block';
             } catch (e) {
-                status.innerText = "Error saat memproses data.";
-                console.error(e);
+                alert("Gagal menganalisis. Pastikan gambar jelas.");
             } finally {
-                btnScan.disabled = false;
-                scanLine.style.display = "none";
+                btnSnap.disabled = false;
+                loading.style.display = 'none';
             }
         });
 
-        initCamera();
+        document.getElementById('btn-copy').addEventListener('click', () => {
+            const textToCopy = Array.from(dataDisplay.querySelectorAll('tr'))
+                .map(tr => tr.innerText.replace('\t', ': ')).join('\n');
+            navigator.clipboard.writeText(textToCopy);
+            alert("Data berhasil disalin!");
+        });
     </script>
 </body>
-  </html>
+</html>
